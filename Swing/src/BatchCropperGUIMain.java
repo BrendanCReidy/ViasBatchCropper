@@ -15,7 +15,7 @@ import javax.swing.event.ChangeEvent;
 import javax.swing.*;
 import javax.imageio.*;
 
-public class Main {
+public class BatchCropperGUIMain {
     public static final int DEFAULT_WINDOW_SIZEX = 700;
     public static final int DEFAULT_WINDOW_SIZEY = 500;
 
@@ -29,8 +29,10 @@ public class Main {
     public static int currentImageIndex = 0;
 
     public static BufferedImage[] images;
-    public static File currentOpen = new File(System.getProperty("user.home") + "/Desktop");
+    public static String[] imageData;
+    public static File currentOpen = new File(System.getProperty("user.home") + "/Documents");
     public static File currentSave = new File(currentOpen.getPath());
+    public static String currentData = "";
     public static BufferedImage image = new BufferedImage(DEFAULT_WINDOW_SIZEX, DEFAULT_WINDOW_SIZEY, BufferedImage.TYPE_INT_ARGB);
 
     public static void main(String[] args) {
@@ -369,11 +371,13 @@ public class Main {
                 int rVal = c.showOpenDialog(frame);
                 if (rVal == JFileChooser.APPROVE_OPTION) {
                     LinkedList<BufferedImage> currentImages = new LinkedList<>();
+                    LinkedList<String> dataNames = new LinkedList<>();
                     for(File file : c.getSelectedFile().listFiles())
                     {
                         if(ImageParser.isImage(file)) {
                             try {
                                 BufferedImage temp = ImageIO.read(file);
+                                dataNames.add(file.getName());
                                 currentImages.add(temp);
                             }catch (Exception ee){
                                 //ee.printStackTrace();
@@ -381,15 +385,28 @@ public class Main {
                         }
                     }
                     images = new BufferedImage[currentImages.size()];
+                    imageData = new String[dataNames.size()];
                     int index = 0;
                     for(BufferedImage img : currentImages)
                     {
                         images[index] = img;
+                        String fullName = dataNames.get(index);
+                        String[] split = fullName.split("\\.");
+                        int len = split.length;
+                        String name = "";
+                        for(int i=0; i<len-1; i++)
+                        {
+                            name+=split[0];
+                            if(i<len-2)
+                                name+=".";
+                        }
+
+                        imageData[index] = name + ".txt";
                         index++;
                     }
                     try {
-                        Main.currentImageIndex = 0;
-                        Main.image = images[currentImageIndex];
+                        BatchCropperGUIMain.currentImageIndex = 0;
+                        BatchCropperGUIMain.image = images[currentImageIndex];
                         boxSizeXSlider.setEnabled(true);
                         boxSizeYSlider.setEnabled(true);
                         imageSelection.setEnabled(true);
@@ -409,7 +426,7 @@ public class Main {
                     } catch (Exception _e) {
                         //_e.printStackTrace();
                     }
-                    Main.currentOpen = new File(c.getSelectedFile().getPath());
+                    BatchCropperGUIMain.currentOpen = new File(c.getSelectedFile().getPath());
                     currentFileTextBox.setText("\tCurrent Directory: " + c.getSelectedFile().getName());
                     BufferedImage imageCopy = deepCopy(image);
                     redraw(imageCopy, boxSizeXSlider.getValue(), boxSizeYSlider.getValue(), boxOffsetX, boxOffsetY, staggeredButton.isSelected(), staggeredOddButton.isSelected());
@@ -421,7 +438,7 @@ public class Main {
 
                     boxSizeXSliderTextBox.setText("Box Size X: " + boxSizeXSlider.getValue());
 
-                    imageParser.setImage(Main.image);
+                    imageParser.setImage(BatchCropperGUIMain.image);
                     LinkedList<BufferedImage> croppedImages = imageParser.parseImage();
                     imageSelection.setMaximum(croppedImages.size());
                     imageSelection.setMinimum(1);
@@ -438,12 +455,12 @@ public class Main {
         save.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                JFileChooser c = new JFileChooser();
+                JFileChooser c = c = new JFileChooser();
                 c.setCurrentDirectory(currentSave);
                 c.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
                 int rVal = c.showOpenDialog(frame);
                 if (rVal == JFileChooser.APPROVE_OPTION) {
-                    Main.currentSave = new File(c.getSelectedFile().getPath());
+                    BatchCropperGUIMain.currentSave = new File(c.getSelectedFile().getPath());
                     export.setEnabled(true);
                 }
                 if (rVal == JFileChooser.CANCEL_OPTION) {
@@ -456,17 +473,45 @@ public class Main {
             public void actionPerformed(ActionEvent e) {
                 LinkedList<BufferedImage> croppedImages = imageParser.parseImage();
                 int index = 0;
-                File tempFile = new File(Main.currentSave.getPath() + "/Image" + index + ".png");
+                File tempFile = new File(BatchCropperGUIMain.currentSave.getPath() + "/Image" + index + ".png");
                 boolean exists = tempFile.exists();
                 while (exists) {
                     index++;
-                    tempFile = new File(Main.currentSave.getPath()+ "/Image" + index + ".png");
+                    tempFile = new File(BatchCropperGUIMain.currentSave.getPath()+ "/Image" + index + ".png");
                     exists = tempFile.exists();
                 }
-                System.out.println(Main.currentSave.getPath() + "/Image" + index + ".png");
+                System.out.println(BatchCropperGUIMain.currentSave.getPath() + "/Image" + index + ".png");
                 for (BufferedImage image : croppedImages) {
                     BufferedImage cropped = AutoCrop.autoCrop(image, boxSize, padding, thresholdSlider.getValue());
-                    ImageParser.saveImage(cropped, Main.currentSave.getPath() + "/", "Image" + index + ".png");
+                    ImageParser.saveImage(cropped, BatchCropperGUIMain.currentSave.getPath() + "/", "Image" + index + ".png");
+
+                    String inName = currentOpen + "/" + imageData[currentImageIndex];
+                    double[][] tsv = FilteredImageToPNG.readTSV(inName, FilteredImageToPNG.getLength(inName));
+                    int width = tsv[0].length;
+                    int height = tsv.length;
+                    double min = 999999;
+                    double max = -999999;
+                    for(int x=0; x<width; x++)
+                    {
+                        for(int y=0; y<height; y++)
+                        {
+                            if(tsv[y][x] > max){
+                                max = tsv[y][x];
+                            }else if(tsv[y][x] < min){
+                                min = tsv[y][x];
+                            }
+                        }
+                    }
+                    double[][] newData = new double[cropped.getHeight()][cropped.getWidth()];
+                    for(int x=0; x<cropped.getWidth(); x++) {
+                        for(int y=0; y<cropped.getHeight(); y++) {
+                            Color color = new Color(cropped.getRGB(x, y));
+                            double gray = (color.getRed() + color.getGreen() + color.getBlue()) / (double) (255 * 3);
+                            double deNorm = ((gray) * (max - min)) + min;
+                            newData[y][x] = deNorm;
+                        }
+                    }
+                    FilteredImageToPNG.saveToFile(newData, BatchCropperGUIMain.currentSave.getPath() + "/" +  "Data" + index + ".txt");
                     index++;
                 }
             }
@@ -479,6 +524,7 @@ public class Main {
                     currentImageIndex++;
                 }
                 image = images[currentImageIndex];
+                System.out.println(imageData[currentImageIndex]);
                 BufferedImage imageCopy = deepCopy(image);
                 redraw(imageCopy, boxSizeXSlider.getValue(), boxSizeYSlider.getValue(), boxOffsetX, boxOffsetY, staggeredButton.isSelected(), staggeredOddButton.isSelected());
                 refresh(imageLabel, imageCopy);
@@ -489,7 +535,7 @@ public class Main {
 
                 boxSizeXSliderTextBox.setText("Box Size X: " + boxSizeXSlider.getValue());
 
-                imageParser.setImage(Main.image);
+                imageParser.setImage(BatchCropperGUIMain.image);
                 LinkedList<BufferedImage> croppedImages = imageParser.parseImage();
                 imageSelection.setMaximum(croppedImages.size());
                 imageSelection.setMinimum(1);
@@ -517,7 +563,7 @@ public class Main {
 
                 boxSizeXSliderTextBox.setText("Box Size X: " + boxSizeXSlider.getValue());
 
-                imageParser.setImage(Main.image);
+                imageParser.setImage(BatchCropperGUIMain.image);
                 LinkedList<BufferedImage> croppedImages = imageParser.parseImage();
                 imageSelection.setMaximum(croppedImages.size());
                 imageSelection.setMinimum(1);
